@@ -1,0 +1,6 @@
+{
+  "name": "Power Electronics: Rectifier Lab Simulator",
+  "description": "Interactive simulation of single-phase and 3-phase diode bridge and thyristor controlled rectifiers with dynamic circuit schematics and real-time waveforms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
