@@ -115,27 +115,102 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        {/* Semi-Converter option for 1-phase full-wave thyristor */}
-        {params.phase === '1-phase' && params.wave === 'full-wave' && params.device === 'thyristor' && (
-          <div className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-800 text-[11px]">
-            <span className="text-slate-400">SCR Converter Type:</span>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => onChange({ variant: 'standard' })}
-                className={`px-2 py-0.5 rounded ${
-                  params.variant === 'standard' ? 'bg-sky-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Fully Controlled
-              </button>
-              <button
-                onClick={() => onChange({ variant: 'semi-converter' })}
-                className={`px-2 py-0.5 rounded ${
-                  params.variant === 'semi-converter' ? 'bg-purple-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Semi-Converter
-              </button>
+        {/* Semi-Converter & Controlled Bridge options */}
+        {params.wave === 'full-wave' && params.device === 'thyristor' && (
+          <div className="flex flex-col gap-2 p-2.5 bg-slate-950/90 rounded-lg border border-slate-800 text-[11px]">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-sky-400">
+                {params.phase === '1-phase' ? '1Φ Controlled Bridge Topology:' : '3Φ Controlled Bridge Topology:'}
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">
+                {params.variant === 'standard' || params.variant === 'fully-controlled'
+                  ? (params.phase === '1-phase' ? '4 Thyristors' : '6 Thyristors')
+                  : (params.phase === '1-phase' ? '2 SCRs + 2 Diodes' : '3 SCRs + 3 Diodes')}
+              </span>
+            </div>
+
+            {params.phase === '1-phase' ? (
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={() => onChange({ variant: 'fully-controlled' })}
+                  className={`py-1.5 px-2 rounded text-center transition-all ${
+                    params.variant === 'standard' || params.variant === 'fully-controlled'
+                      ? 'bg-sky-600 text-white font-bold shadow-sm'
+                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="font-semibold">Fully Controlled</div>
+                  <div className="text-[9px] opacity-75">4 SCRs (T1-T4)</div>
+                </button>
+
+                <button
+                  onClick={() => onChange({ variant: 'semi-symmetrical' })}
+                  className={`py-1.5 px-2 rounded text-center transition-all ${
+                    params.variant === 'semi-symmetrical' || params.variant === 'semi-converter'
+                      ? 'bg-purple-600 text-white font-bold shadow-sm'
+                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="font-semibold">Symmetrical Semi</div>
+                  <div className="text-[9px] opacity-75">Top SCR, Bot Diode</div>
+                </button>
+
+                <button
+                  onClick={() => onChange({ variant: 'semi-asymmetrical' })}
+                  className={`py-1.5 px-2 rounded text-center transition-all ${
+                    params.variant === 'semi-asymmetrical'
+                      ? 'bg-amber-600 text-white font-bold shadow-sm'
+                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="font-semibold">Asymmetrical Semi</div>
+                  <div className="text-[9px] opacity-75">Leg 1 SCR, Leg 2 Diode</div>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => onChange({ variant: 'fully-controlled' })}
+                  className={`py-1.5 px-2 rounded text-center transition-all ${
+                    params.variant === 'standard' || params.variant === 'fully-controlled'
+                      ? 'bg-sky-600 text-white font-bold shadow-sm'
+                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="font-semibold">Fully Controlled 6-Pulse</div>
+                  <div className="text-[9px] opacity-75">6 SCRs (T1 to T6)</div>
+                </button>
+
+                <button
+                  onClick={() => onChange({ variant: 'semi-symmetrical' })}
+                  className={`py-1.5 px-2 rounded text-center transition-all ${
+                    params.variant === 'semi-symmetrical' || params.variant === 'semi-converter' || params.variant === 'semi-asymmetrical'
+                      ? 'bg-purple-600 text-white font-bold shadow-sm'
+                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="font-semibold">Half-Controlled Semi-Converter</div>
+                  <div className="text-[9px] opacity-75">3 SCRs Top, 3 Diodes Bottom</div>
+                </button>
+              </div>
+            )}
+
+            <div className="text-[10px] text-slate-400 px-0.5 leading-tight">
+              {params.phase === '1-phase' ? (
+                params.variant === 'semi-asymmetrical' ? (
+                  <span><strong>Asymmetrical:</strong> Leg 1 has T1 & T4 (SCRs); Leg 2 has D3 & D2 (Diodes). Freewheeling circulates directly through the diode leg.</span>
+                ) : params.variant === 'semi-symmetrical' || params.variant === 'semi-converter' ? (
+                  <span><strong>Symmetrical:</strong> Top rail has T1 & T2 (SCRs); Bottom rail has D1 & D2 (Diodes). Clamps Vo ≥ 0 with inherent freewheeling.</span>
+                ) : (
+                  <span><strong>Full Converter:</strong> 4 SCRs. Can produce negative voltage excursions with inductive loads unless external FWD is fitted.</span>
+                )
+              ) : (
+                params.variant === 'semi-symmetrical' || params.variant === 'semi-converter' || params.variant === 'semi-asymmetrical' ? (
+                  <span><strong>3Φ Semi-Converter:</strong> Top cathodes T1, T3, T5 (SCRs); Bottom anodes D4, D6, D2 (Diodes). Output voltage Vo ≥ 0.</span>
+                ) : (
+                  <span><strong>3Φ Full Converter:</strong> 6 SCRs. Can invert power when coupled with DC back-EMF source.</span>
+                )
+              )}
             </div>
           </div>
         )}

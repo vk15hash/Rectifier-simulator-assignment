@@ -416,6 +416,44 @@ export const CircuitSchematic: React.FC<CircuitSchematicProps> = ({
     );
   };
 
+  // Helper to determine exact topology title
+  const getTopologyTitle = () => {
+    if (phase === '1-phase') {
+      if (wave === 'half-wave') {
+        return device === 'diode' ? '1Φ Half-Wave Diode' : '1Φ Half-Wave SCR';
+      }
+      if (device === 'diode') {
+        return '1Φ Diode Bridge';
+      }
+      if (variant === 'semi-asymmetrical') {
+        return '1Φ Asymmetrical Semi-Converter (Leg 1: 2 SCRs, Leg 2: 2 Diodes)';
+      }
+      if (variant === 'semi-converter' || variant === 'semi-symmetrical') {
+        return '1Φ Symmetrical Semi-Converter (Top: 2 SCRs, Bottom: 2 Diodes)';
+      }
+      return '1Φ Fully Controlled Bridge (4 SCRs)';
+    } else {
+      if (wave === 'half-wave') {
+        return device === 'diode' ? '3Φ Half-Wave Diode (3-Pulse)' : '3Φ Half-Wave SCR (3-Pulse)';
+      }
+      if (device === 'diode') {
+        return '3Φ 6-Pulse Diode Bridge';
+      }
+      if (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical') {
+        return '3Φ Semi-Converter (Top: 3 SCRs, Bottom: 3 Diodes)';
+      }
+      return '3Φ Fully Controlled 6-Pulse Bridge (6 SCRs)';
+    }
+  };
+
+  // Check semi-converter configuration
+  const is1PhaseSemi = phase === '1-phase' && wave === 'full-wave' && isThyristor &&
+    (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical');
+  const is1PhaseAsym = variant === 'semi-asymmetrical';
+
+  const is3PhaseSemi = phase === '3-phase' && wave === 'full-wave' && isThyristor &&
+    (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical');
+
   return (
     <div className="flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
       {/* Schematic Header Bar */}
@@ -425,8 +463,7 @@ export const CircuitSchematic: React.FC<CircuitSchematicProps> = ({
           <span className="font-semibold text-white">Circuit Schematic</span>
           <span className="text-slate-500">·</span>
           <span className="text-sky-400 font-mono font-medium">
-            {phase.toUpperCase()} {wave.toUpperCase()} {device.toUpperCase()}
-            {variant === 'semi-converter' ? ' (SEMI-CONVERTER)' : ''}
+            {getTopologyTitle()}
           </span>
         </div>
         <div className="flex items-center gap-2 text-slate-300">
@@ -544,35 +581,67 @@ export const CircuitSchematic: React.FC<CircuitSchematicProps> = ({
                 - DC Rail
               </text>
 
-              {/* ================= LEG 1 (x = 210) ================= */}
-              {/* Top connection of Leg 1 to + Rail */}
-              {renderNode(210, 35)}
-              <line x1="210" y1="35" x2="210" y2="58" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(210, 80, isThyristor ? 'T1' : 'D1', isThyristor ? 'T1' : 'D1', isThyristor, 'up')}
-              <line x1="210" y1="102" x2="210" y2="110" stroke={wireColor} strokeWidth="2.5" />
+              {/* Determine 1-Phase Bridge Devices for Symmetrical, Asymmetrical, Fully Controlled or Diode */}
+              {(() => {
+                let l1Top = { id: 'D1', label: 'D1', isSCR: false };
+                let l1Bot = { id: 'D4', label: 'D4', isSCR: false };
+                let l2Top = { id: 'D3', label: 'D3', isSCR: false };
+                let l2Bot = { id: 'D2', label: 'D2', isSCR: false };
 
-              {/* Leg 1 AC Midpoint (y = 110) */}
-              {renderNode(210, 110, '#38bdf8')}
+                if (isThyristor) {
+                  if (!is1PhaseSemi) {
+                    // Fully controlled (4 SCRs)
+                    l1Top = { id: 'T1', label: 'T1 (SCR)', isSCR: true };
+                    l1Bot = { id: 'T4', label: 'T4 (SCR)', isSCR: true };
+                    l2Top = { id: 'T3', label: 'T3 (SCR)', isSCR: true };
+                    l2Bot = { id: 'T2', label: 'T2 (SCR)', isSCR: true };
+                  } else if (!is1PhaseAsym) {
+                    // Symmetrical Semi-Converter: Top 2 SCRs (T1, T2), Bottom 2 Diodes (D1, D2)
+                    l1Top = { id: 'T1', label: 'T1 (SCR)', isSCR: true };
+                    l1Bot = { id: 'D1', label: 'D1 (Diode)', isSCR: false };
+                    l2Top = { id: 'T2', label: 'T2 (SCR)', isSCR: true };
+                    l2Bot = { id: 'D2', label: 'D2 (Diode)', isSCR: false };
+                  } else {
+                    // Asymmetrical Semi-Converter: Leg 1 has 2 SCRs (T1, T4), Leg 2 has 2 Diodes (D3, D2)
+                    l1Top = { id: 'T1', label: 'T1 (SCR)', isSCR: true };
+                    l1Bot = { id: 'T4', label: 'T4 (SCR)', isSCR: true };
+                    l2Top = { id: 'D3', label: 'D3 (Diode)', isSCR: false };
+                    l2Bot = { id: 'D2', label: 'D2 (Diode)', isSCR: false };
+                  }
+                }
 
-              <line x1="210" y1="110" x2="210" y2="135" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(210, 157, isThyristor ? 'T4' : 'D4', isThyristor ? 'T4' : 'D4', isThyristor, 'up')}
-              <line x1="210" y1="179" x2="210" y2="215" stroke={wireColor} strokeWidth="2.5" />
-              {renderNode(210, 215)}
+                return (
+                  <>
+                    {/* ================= LEG 1 (x = 210) ================= */}
+                    {renderNode(210, 35)}
+                    <line x1="210" y1="35" x2="210" y2="58" stroke={wireColor} strokeWidth="2.5" />
+                    {l1Top.isSCR ? renderThyristor(210, 80, l1Top.id, l1Top.label, 'up') : renderDiode(210, 80, l1Top.id, l1Top.label, 'up')}
+                    <line x1="210" y1="102" x2="210" y2="110" stroke={wireColor} strokeWidth="2.5" />
 
-              {/* ================= LEG 2 (x = 320) ================= */}
-              {/* Top connection of Leg 2 to + Rail */}
-              {renderNode(320, 35)}
-              <line x1="320" y1="35" x2="320" y2="58" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(320, 80, isThyristor ? 'T3' : 'D3', isThyristor ? 'T3' : 'D3', isThyristor, 'up')}
-              <line x1="320" y1="102" x2="320" y2="140" stroke={wireColor} strokeWidth="2.5" />
+                    {/* Leg 1 AC Midpoint (y = 110) */}
+                    {renderNode(210, 110, '#38bdf8')}
 
-              {/* Leg 2 AC Midpoint (y = 140) */}
-              {renderNode(320, 140, '#38bdf8')}
+                    <line x1="210" y1="110" x2="210" y2="135" stroke={wireColor} strokeWidth="2.5" />
+                    {l1Bot.isSCR ? renderThyristor(210, 157, l1Bot.id, l1Bot.label, 'up') : renderDiode(210, 157, l1Bot.id, l1Bot.label, 'up')}
+                    <line x1="210" y1="179" x2="210" y2="215" stroke={wireColor} strokeWidth="2.5" />
+                    {renderNode(210, 215)}
 
-              <line x1="320" y1="140" x2="320" y2="157" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(320, 179, isThyristor ? 'T2' : 'D2', isThyristor ? 'T2' : 'D2', isThyristor, 'up')}
-              <line x1="320" y1="201" x2="320" y2="215" stroke={wireColor} strokeWidth="2.5" />
-              {renderNode(320, 215)}
+                    {/* ================= LEG 2 (x = 320) ================= */}
+                    {renderNode(320, 35)}
+                    <line x1="320" y1="35" x2="320" y2="58" stroke={wireColor} strokeWidth="2.5" />
+                    {l2Top.isSCR ? renderThyristor(320, 80, l2Top.id, l2Top.label, 'up') : renderDiode(320, 80, l2Top.id, l2Top.label, 'up')}
+                    <line x1="320" y1="102" x2="320" y2="140" stroke={wireColor} strokeWidth="2.5" />
+
+                    {/* Leg 2 AC Midpoint (y = 140) */}
+                    {renderNode(320, 140, '#38bdf8')}
+
+                    <line x1="320" y1="140" x2="320" y2="157" stroke={wireColor} strokeWidth="2.5" />
+                    {l2Bot.isSCR ? renderThyristor(320, 179, l2Bot.id, l2Bot.label, 'up') : renderDiode(320, 179, l2Bot.id, l2Bot.label, 'up')}
+                    <line x1="320" y1="201" x2="320" y2="215" stroke={wireColor} strokeWidth="2.5" />
+                    {renderNode(320, 215)}
+                  </>
+                );
+              })()}
 
               {/* ================= AC SOURCE TERMINAL 1 (TOP) ================= */}
               {/* Clearly visible Terminal 1 Circle and lead */}
@@ -739,50 +808,81 @@ export const CircuitSchematic: React.FC<CircuitSchematicProps> = ({
                 - DC Rail
               </text>
 
-              {/* ================= LEG 1 (Phase A, x = 180) ================= */}
-              {/* Top Device T1 */}
-              {renderNode(180, 30)}
-              <line x1="180" y1="30" x2="180" y2="43" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(180, 65, isThyristor ? 'T1' : 'D1', isThyristor ? 'T1' : 'D1', isThyristor, 'up')}
-              <line x1="180" y1="87" x2="180" y2="95" stroke={wireColor} strokeWidth="2.5" />
+              {/* Determine 3-Phase Bridge Devices for Semi-Converter (3 SCRs + 3 Diodes) vs Full SCR (6 SCRs) vs Diode (6 Diodes) */}
+              {(() => {
+                let l1Top = { id: 'D1', label: 'D1', isSCR: false };
+                let l1Bot = { id: 'D4', label: 'D4', isSCR: false };
+                let l2Top = { id: 'D3', label: 'D3', isSCR: false };
+                let l2Bot = { id: 'D6', label: 'D6', isSCR: false };
+                let l3Top = { id: 'D5', label: 'D5', isSCR: false };
+                let l3Bot = { id: 'D2', label: 'D2', isSCR: false };
 
-              {/* Leg 1 Midpoint (y = 95): WHERE RED PHASE A ENTERS! */}
-              {renderNode(180, 95, '#ef4444')}
+                if (isThyristor) {
+                  if (!is3PhaseSemi) {
+                    // Fully controlled 6 SCR bridge
+                    l1Top = { id: 'T1', label: 'T1 (SCR)', isSCR: true };
+                    l1Bot = { id: 'T4', label: 'T4 (SCR)', isSCR: true };
+                    l2Top = { id: 'T3', label: 'T3 (SCR)', isSCR: true };
+                    l2Bot = { id: 'T6', label: 'T6 (SCR)', isSCR: true };
+                    l3Top = { id: 'T5', label: 'T5 (SCR)', isSCR: true };
+                    l3Bot = { id: 'T2', label: 'T2 (SCR)', isSCR: true };
+                  } else {
+                    // 3-Phase Semi-Converter (Half-Controlled): Top 3 SCRs, Bottom 3 Diodes
+                    l1Top = { id: 'T1', label: 'T1 (SCR)', isSCR: true };
+                    l1Bot = { id: 'D4', label: 'D4 (Diode)', isSCR: false };
+                    l2Top = { id: 'T3', label: 'T3 (SCR)', isSCR: true };
+                    l2Bot = { id: 'D6', label: 'D6 (Diode)', isSCR: false };
+                    l3Top = { id: 'T5', label: 'T5 (SCR)', isSCR: true };
+                    l3Bot = { id: 'D2', label: 'D2 (Diode)', isSCR: false };
+                  }
+                }
 
-              <line x1="180" y1="95" x2="180" y2="163" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(180, 185, isThyristor ? 'T4' : 'D4', isThyristor ? 'T4' : 'D4', isThyristor, 'up')}
-              <line x1="180" y1="207" x2="180" y2="220" stroke={wireColor} strokeWidth="2.5" />
-              {renderNode(180, 220)}
+                return (
+                  <>
+                    {/* ================= LEG 1 (Phase A, x = 180) ================= */}
+                    {renderNode(180, 30)}
+                    <line x1="180" y1="30" x2="180" y2="43" stroke={wireColor} strokeWidth="2.5" />
+                    {l1Top.isSCR ? renderThyristor(180, 65, l1Top.id, l1Top.label, 'up') : renderDiode(180, 65, l1Top.id, l1Top.label, 'up')}
+                    <line x1="180" y1="87" x2="180" y2="95" stroke={wireColor} strokeWidth="2.5" />
 
-              {/* ================= LEG 2 (Phase B, x = 275) ================= */}
-              {/* Top Device T3 */}
-              {renderNode(275, 30)}
-              <line x1="275" y1="30" x2="275" y2="43" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(275, 65, isThyristor ? 'T3' : 'D3', isThyristor ? 'T3' : 'D3', isThyristor, 'up')}
-              <line x1="275" y1="87" x2="275" y2="125" stroke={wireColor} strokeWidth="2.5" />
+                    {/* Leg 1 Midpoint (y = 95): WHERE RED PHASE A ENTERS! */}
+                    {renderNode(180, 95, '#ef4444')}
 
-              {/* Leg 2 Midpoint (y = 125): WHERE YELLOW PHASE B ENTERS! */}
-              {renderNode(275, 125, '#eab308')}
+                    <line x1="180" y1="95" x2="180" y2="163" stroke={wireColor} strokeWidth="2.5" />
+                    {l1Bot.isSCR ? renderThyristor(180, 185, l1Bot.id, l1Bot.label, 'up') : renderDiode(180, 185, l1Bot.id, l1Bot.label, 'up')}
+                    <line x1="180" y1="207" x2="180" y2="220" stroke={wireColor} strokeWidth="2.5" />
+                    {renderNode(180, 220)}
 
-              <line x1="275" y1="125" x2="275" y2="163" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(275, 185, isThyristor ? 'T6' : 'D6', isThyristor ? 'T6' : 'D6', isThyristor, 'up')}
-              <line x1="275" y1="207" x2="275" y2="220" stroke={wireColor} strokeWidth="2.5" />
-              {renderNode(275, 220)}
+                    {/* ================= LEG 2 (Phase B, x = 275) ================= */}
+                    {renderNode(275, 30)}
+                    <line x1="275" y1="30" x2="275" y2="43" stroke={wireColor} strokeWidth="2.5" />
+                    {l2Top.isSCR ? renderThyristor(275, 65, l2Top.id, l2Top.label, 'up') : renderDiode(275, 65, l2Top.id, l2Top.label, 'up')}
+                    <line x1="275" y1="87" x2="275" y2="125" stroke={wireColor} strokeWidth="2.5" />
 
-              {/* ================= LEG 3 (Phase C, x = 370) ================= */}
-              {/* Top Device T5 */}
-              {renderNode(370, 30)}
-              <line x1="370" y1="30" x2="370" y2="43" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(370, 65, isThyristor ? 'T5' : 'D5', isThyristor ? 'T5' : 'D5', isThyristor, 'up')}
-              <line x1="370" y1="87" x2="370" y2="155" stroke={wireColor} strokeWidth="2.5" />
+                    {/* Leg 2 Midpoint (y = 125): WHERE YELLOW PHASE B ENTERS! */}
+                    {renderNode(275, 125, '#eab308')}
 
-              {/* Leg 3 Midpoint (y = 155): WHERE BLUE PHASE C ENTERS! */}
-              {renderNode(370, 155, '#3b82f6')}
+                    <line x1="275" y1="125" x2="275" y2="163" stroke={wireColor} strokeWidth="2.5" />
+                    {l2Bot.isSCR ? renderThyristor(275, 185, l2Bot.id, l2Bot.label, 'up') : renderDiode(275, 185, l2Bot.id, l2Bot.label, 'up')}
+                    <line x1="275" y1="207" x2="275" y2="220" stroke={wireColor} strokeWidth="2.5" />
+                    {renderNode(275, 220)}
 
-              <line x1="370" y1="155" x2="370" y2="163" stroke={wireColor} strokeWidth="2.5" />
-              {renderDevice(370, 185, isThyristor ? 'T2' : 'D2', isThyristor ? 'T2' : 'D2', isThyristor, 'up')}
-              <line x1="370" y1="207" x2="370" y2="220" stroke={wireColor} strokeWidth="2.5" />
-              {renderNode(370, 220)}
+                    {/* ================= LEG 3 (Phase C, x = 370) ================= */}
+                    {renderNode(370, 30)}
+                    <line x1="370" y1="30" x2="370" y2="43" stroke={wireColor} strokeWidth="2.5" />
+                    {l3Top.isSCR ? renderThyristor(370, 65, l3Top.id, l3Top.label, 'up') : renderDiode(370, 65, l3Top.id, l3Top.label, 'up')}
+                    <line x1="370" y1="87" x2="370" y2="155" stroke={wireColor} strokeWidth="2.5" />
+
+                    {/* Leg 3 Midpoint (y = 155): WHERE BLUE PHASE C ENTERS! */}
+                    {renderNode(370, 155, '#3b82f6')}
+
+                    <line x1="370" y1="155" x2="370" y2="163" stroke={wireColor} strokeWidth="2.5" />
+                    {l3Bot.isSCR ? renderThyristor(370, 185, l3Bot.id, l3Bot.label, 'up') : renderDiode(370, 185, l3Bot.id, l3Bot.label, 'up')}
+                    <line x1="370" y1="207" x2="370" y2="220" stroke={wireColor} strokeWidth="2.5" />
+                    {renderNode(370, 220)}
+                  </>
+                );
+              })()}
 
               {/* ================= 3-PHASE INPUT LINES ROUTING ================= */}
               {/* PHASE A (RED, track y = 95):

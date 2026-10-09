@@ -120,6 +120,14 @@ export const LabGuideModal: React.FC<LabGuideModalProps> = ({ isOpen, onClose })
                     <td className="p-2.5">0.042 (4.2%)</td>
                     <td className="p-2.5">99.8%</td>
                   </tr>
+                  <tr className="hover:bg-slate-800/40">
+                    <td className="p-2.5 font-sans font-medium text-white">3Φ Semi-Converter (3 SCRs + 3 Diodes)</td>
+                    <td className="p-2.5">3/6</td>
+                    <td className="p-2.5">3f / 6f</td>
+                    <td className="p-2.5 text-purple-300">(3 Vm,LL / 2π) · (1 + cos α)</td>
+                    <td className="p-2.5">Varies with α</td>
+                    <td className="p-2.5">&le; 99.8%</td>
+                  </tr>
                 </tbody>
               </table>
             </div>

@@ -23,20 +23,24 @@ export const TopologyComparison: React.FC<TopologyComparisonProps> = ({
       params: { ...currentParams, phase: '1-phase' as const, wave: 'full-wave' as const, device: 'diode' as const }
     },
     {
-      title: '1Φ Full-Wave Thyristor (α = 30°)',
-      params: { ...currentParams, phase: '1-phase' as const, wave: 'full-wave' as const, device: 'thyristor' as const, firingAngle: 30 }
+      title: '1Φ Fully Controlled Bridge (α = 30°)',
+      params: { ...currentParams, phase: '1-phase' as const, wave: 'full-wave' as const, device: 'thyristor' as const, variant: 'fully-controlled' as const, firingAngle: 30 }
     },
     {
-      title: '3Φ Half-Wave Diode (3-Pulse)',
-      params: { ...currentParams, phase: '3-phase' as const, wave: 'half-wave' as const, device: 'diode' as const }
+      title: '1Φ Semi-Converter (2 SCRs + 2 Diodes, α = 30°)',
+      params: { ...currentParams, phase: '1-phase' as const, wave: 'full-wave' as const, device: 'thyristor' as const, variant: 'semi-symmetrical' as const, firingAngle: 30 }
     },
     {
       title: '3Φ Full-Wave 6-Pulse Diode Bridge',
       params: { ...currentParams, phase: '3-phase' as const, wave: 'full-wave' as const, device: 'diode' as const }
     },
     {
-      title: '3Φ Full-Wave Thyristor (α = 30°)',
-      params: { ...currentParams, phase: '3-phase' as const, wave: 'full-wave' as const, device: 'thyristor' as const, firingAngle: 30 }
+      title: '3Φ Fully Controlled Bridge (α = 30°)',
+      params: { ...currentParams, phase: '3-phase' as const, wave: 'full-wave' as const, device: 'thyristor' as const, variant: 'fully-controlled' as const, firingAngle: 30 }
+    },
+    {
+      title: '3Φ Semi-Converter (3 SCRs + 3 Diodes, α = 30°)',
+      params: { ...currentParams, phase: '3-phase' as const, wave: 'full-wave' as const, device: 'thyristor' as const, variant: 'semi-symmetrical' as const, firingAngle: 30 }
     }
   ];
 

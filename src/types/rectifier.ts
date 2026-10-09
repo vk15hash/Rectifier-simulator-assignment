@@ -1,7 +1,12 @@
 export type PhaseType = '1-phase' | '3-phase';
 export type WaveType = 'half-wave' | 'full-wave';
 export type DeviceType = 'diode' | 'thyristor';
-export type TopologyVariant = 'standard' | 'semi-converter';
+export type TopologyVariant =
+  | 'standard'
+  | 'fully-controlled'
+  | 'semi-converter'
+  | 'semi-symmetrical'
+  | 'semi-asymmetrical';
 
 export type LoadType = 'R' | 'RL' | 'RL-FWD' | 'RC' | 'RLE';
 

@@ -175,8 +175,9 @@ export function simulateRectifier(
             iDev1 = 0;
             pathDesc = 'Bridge Diodes Blocking';
           }
-        } else if (variant === 'semi-converter') {
-          // 1-Phase Semi-converter (T1, T2 thyristors, D1, D2 diodes or T1, D2 / T2, D1)
+        } else if (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical') {
+          // 1-Phase Semi-converter (Half-controlled bridge: 2 SCRs + 2 Diodes)
+          const isAsym = variant === 'semi-asymmetrical';
           const halfCycle = cycleAngle % Math.PI;
           const isFirstHalf = cycleAngle < Math.PI;
 
@@ -185,31 +186,43 @@ export function simulateRectifier(
           }
 
           if (halfCycle >= alphaRad) {
+            // Actively powered interval
             vTarget = absVs - 2 * diodeDrop;
             if (isFirstHalf) {
-              activeDevices = ['T1', 'D2'];
+              activeDevices = isAsym ? ['T1', 'D2'] : ['T1', 'D2'];
               vDev1 = diodeDrop;
               iDev1 = iLoad;
-              pathDesc = 'AC(+) → T1 → Load → D2 → AC(-)';
+              pathDesc = 'AC(+) → T1 (SCR) → Load → D2 (Diode) → AC(-)';
             } else {
-              activeDevices = ['T2', 'D1'];
+              activeDevices = isAsym ? ['T4', 'D3'] : ['T2', 'D1'];
               vDev1 = -absVs;
               iDev1 = 0;
-              pathDesc = 'AC(-) → T2 → Load → D1 → AC(+)';
+              pathDesc = isAsym
+                ? 'AC(-) → D3 (Diode) → Load → T4 (SCR) → AC(+)'
+                : 'AC(-) → T2 (SCR) → Load → D1 (Diode) → AC(+)';
             }
           } else if (iLoad > 0.001) {
-            // Freewheeling action inherent in semi-converter!
+            // Inherent freewheeling action (vo clamped to 0)
             vTarget = 0;
-            activeDevices = isFirstHalf ? ['D1', 'D2'] : ['D1', 'D2'];
+            if (isAsym) {
+              activeDevices = ['D3', 'D2'];
+              pathDesc = 'Freewheeling via Diode Leg (D3 + D2, vo = 0)';
+            } else {
+              activeDevices = isFirstHalf ? ['D1', 'T1'] : ['D2', 'T2'];
+              pathDesc = isFirstHalf
+                ? 'Freewheeling via D1 & T1 (vo = 0)'
+                : 'Freewheeling via D2 & T2 (vo = 0)';
+            }
             vDev1 = vs;
-            iDev1 = 0;
-            pathDesc = 'Freewheeling via Diodes (v_o = 0)';
+            iDev1 = activeDevices.includes('T1') ? iLoad : 0;
           } else {
             vTarget = loadType === 'RC' ? vCap : backEmf;
             activeDevices = [];
             vDev1 = vs;
             iDev1 = 0;
-            pathDesc = 'Semi-converter Blocking';
+            pathDesc = isAsym
+              ? 'Asymmetrical Semi-converter Blocking'
+              : 'Symmetrical Semi-converter Blocking';
           }
         } else {
           // Fully Controlled Converter (T1, T2, T3, T4)
@@ -372,21 +385,88 @@ export function simulateRectifier(
           vTarget = Math.max(0, maxLine.val - 2 * diodeDrop);
           const prefix = 'D';
           activeDevices = [prefix + maxLine.top, prefix + maxLine.bot];
-          vDev1 = activeDevices.includes('D1') ? diodeDrop : -Math.abs(vab);
+          vDev1 = activeDevices.includes('D1') ? diodeDrop : (maxLine.top === '3' ? vab : (va - vc));
           iDev1 = activeDevices.includes('D1') ? iLoad : 0;
           pathDesc = `${maxLine.name}: ${activeDevices[0]} (Top) → Load → ${activeDevices[1]} (Bottom)`;
+        } else if (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical') {
+          // 3-Phase Semi-Converter (Half-Controlled: Top 3 SCRs T1,T3,T5; Bottom 3 Diodes D4,D6,D2)
+          // Natural commutation reference is 30° (pi/6). Fired at 30°+α, 150°+α, 270°+α
+          const baseOffset = (Math.PI / 6) + alphaRad;
+
+          // Gate pulses for 3 SCRs (fired at 120° intervals)
+          for (let p = 0; p < 3; p++) {
+            const pAngle = (baseOffset + p * (2 * Math.PI / 3)) % (2 * Math.PI);
+            const angleSincePulse = (cycleAngle - pAngle + 2 * Math.PI) % (2 * Math.PI);
+            if (angleSincePulse <= pulseWidth) {
+              gateActive = 1;
+            }
+          }
+
+          // Top SCR selection based on 120° conduction intervals from firing point
+          const topShift = (cycleAngle - baseOffset + 4 * Math.PI) % (2 * Math.PI);
+          let topScr = 'T1';
+          let vTop = va;
+          if (topShift < (2 * Math.PI / 3)) {
+            topScr = 'T1';
+            vTop = va;
+          } else if (topShift < (4 * Math.PI / 3)) {
+            topScr = 'T3';
+            vTop = vb;
+          } else {
+            topScr = 'T5';
+            vTop = vc;
+          }
+
+          // Bottom Diode selection (conducts whichever phase is most negative)
+          let botDiode = 'D6';
+          let vBot = vb;
+          if (va <= vb && va <= vc) {
+            botDiode = 'D4';
+            vBot = va;
+          } else if (vb <= va && vb <= vc) {
+            botDiode = 'D6';
+            vBot = vb;
+          } else {
+            botDiode = 'D2';
+            vBot = vc;
+          }
+
+          // Check for inherent freewheeling: same leg conducting top & bottom (vTop === vBot)
+          // or negative voltage excursion with inductor current
+          const isSameLeg = (topScr === 'T1' && botDiode === 'D4') ||
+                            (topScr === 'T3' && botDiode === 'D6') ||
+                            (topScr === 'T5' && botDiode === 'D2');
+
+          const rawV = vTop - vBot;
+          if (isSameLeg || (rawV <= 0 && iLoad > 0.001)) {
+            vTarget = 0;
+            activeDevices = [topScr, botDiode];
+            pathDesc = `Inherent Freewheeling via same phase (${topScr} & ${botDiode}, vo = 0)`;
+          } else if (rawV > 0) {
+            vTarget = rawV - 2 * diodeDrop;
+            activeDevices = [topScr, botDiode];
+            pathDesc = `${topScr} (SCR) → Load → ${botDiode} (Diode)`;
+          } else {
+            vTarget = loadType === 'RC' ? vCap : backEmf;
+            activeDevices = [];
+            pathDesc = '3Φ Semi-converter Blocking';
+          }
+
+          vDev1 = activeDevices.includes('T1') ? diodeDrop : (topScr === 'T3' ? vab : (va - vc));
+          iDev1 = activeDevices.includes('T1') ? iLoad : 0;
         } else {
-          // 3-Phase Controlled 6-pulse Bridge
-          // Natural commutation for 6-pulse bridge starts at 60 deg (pi/3) + alpha
-          // 6 intervals of 60 deg (pi/3)
-          const baseOffset = (Math.PI / 3) + alphaRad;
+          // 3-Phase Controlled 6-pulse Bridge (6 SCRs)
+          // Natural commutation reference is at 30° (pi/6). Fired at 30°+α, 90°+α, 150°+α, etc.
+          // At α = 0, this yields the exact same envelopes and voltages as the 3-phase diode bridge!
+          const baseOffset = (Math.PI / 6) + alphaRad;
           const shiftAngle = (cycleAngle - baseOffset + 4 * Math.PI) % (2 * Math.PI);
           const intervalIdx = Math.floor(shiftAngle / (Math.PI / 3)) % 6;
 
           // Trigger pulses
           for (let p = 0; p < 6; p++) {
             const pAngle = (baseOffset + p * (Math.PI / 3)) % (2 * Math.PI);
-            if (Math.abs(cycleAngle - pAngle) < pulseWidth / 2) {
+            const angleSincePulse = (cycleAngle - pAngle + 2 * Math.PI) % (2 * Math.PI);
+            if (angleSincePulse <= pulseWidth) {
               gateActive = 1;
             }
           }
@@ -403,7 +483,7 @@ export function simulateRectifier(
             pathDesc = `${chosen.name}: ${activeDevices[0]} → Load → ${activeDevices[1]}`;
           }
 
-          vDev1 = activeDevices.includes('T1') ? diodeDrop : -Math.abs(vab);
+          vDev1 = activeDevices.includes('T1') ? diodeDrop : (activeDevices.includes('T3') ? vab : (va - vc));
           iDev1 = activeDevices.includes('T1') ? iLoad : 0;
         }
       }
@@ -553,10 +633,12 @@ export function simulateRectifier(
         vDcTheoretical = ((2 * VmPhase) / Math.PI) - 2 * diodeDrop;
         theoreticalFormula = 'V_dc = \\frac{2V_m}{\\pi} \\approx 0.636 \\cdot V_m';
         formulaNote = 'Single-phase full-wave bridge rectifier (2-pulse).';
-      } else if (variant === 'semi-converter') {
+      } else if (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical') {
         vDcTheoretical = ((VmPhase / Math.PI) * (1 + cosA)) - 2 * diodeDrop;
         theoreticalFormula = 'V_dc = \\frac{V_m}{\\pi}(1 + \\cos\\alpha)';
-        formulaNote = 'Semi-converter (half-controlled bridge) with inherent freewheeling.';
+        formulaNote = variant === 'semi-asymmetrical'
+          ? 'Asymmetrical semi-converter (Leg 1: SCRs, Leg 2: Diodes) with inherent freewheeling.'
+          : 'Symmetrical semi-converter (Top: 2 SCRs, Bottom: 2 Diodes) with inherent freewheeling.';
       } else {
         // Fully controlled bridge
         if (hasFwd) {
@@ -590,6 +672,10 @@ export function simulateRectifier(
         vDcTheoretical = ((3 * VmLine) / Math.PI) - 2 * diodeDrop;
         theoreticalFormula = 'V_dc = \\frac{3 V_{m,LL}}{\\pi} = \\frac{3\\sqrt{2}}{\\pi} V_{LL,rms} \\approx 1.35 \\cdot V_{LL,rms}';
         formulaNote = '3-phase 6-pulse diode bridge rectifier with minimal ripple.';
+      } else if (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical') {
+        vDcTheoretical = (((3 * VmLine) / (2 * Math.PI)) * (1 + cosA)) - 2 * diodeDrop;
+        theoreticalFormula = 'V_dc = \\frac{3 V_{m,LL}}{2\\pi}(1 + \\cos\\alpha)';
+        formulaNote = '3-phase half-controlled bridge (semi-converter: 3 SCRs + 3 Diodes) with inherent freewheeling.';
       } else {
         vDcTheoretical = (((3 * VmLine) / Math.PI) * cosA) - 2 * diodeDrop;
         theoreticalFormula = 'V_dc = \\frac{3 V_{m,LL}}{\\pi}\\cos\\alpha = 1.35 \\cdot V_{LL,rms} \\cos\\alpha';
