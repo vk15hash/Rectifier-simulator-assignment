@@ -84,7 +84,7 @@ export const Oscilloscope: React.FC<OscilloscopeProps> = ({
     // Margins
     const padLeft = 55;
     const padRight = 20;
-    const padTop = 25;
+    const padTop = 32;
     const padBottom = 30;
     const plotW = width - padLeft - padRight;
     const plotH = height - padTop - padBottom;
@@ -93,7 +93,7 @@ export const Oscilloscope: React.FC<OscilloscopeProps> = ({
     let maxV = Math.max(
       ...visibleSamples.map(s => Math.max(Math.abs(s.vInA), Math.abs(s.vOut), Math.abs(s.vDevice1 || 0)))
     );
-    maxV = Math.max(50, Math.ceil(maxV * 1.15 / 50) * 50); // round to nice number
+    maxV = Math.max(50, Math.ceil(maxV * 1.25 / 50) * 50); // round to nice number with headroom
     const minV = -maxV;
 
     let maxI = Math.max(1, ...visibleSamples.map(s => Math.abs(s.iOut)));
@@ -563,7 +563,7 @@ export const Oscilloscope: React.FC<OscilloscopeProps> = ({
         </div>
       )}
 
-      {/* Main Interactive Canvas Area */}
+      {/* Main Interactive Canvas Area (100% Unobstructed Trace) */}
       <div className="relative w-full h-[320px] md:h-[350px] bg-[#090d16] cursor-crosshair">
         <canvas
           ref={canvasRef}
@@ -573,31 +573,46 @@ export const Oscilloscope: React.FC<OscilloscopeProps> = ({
             if (e.buttons === 1) handlePointerInteraction(e);
           }}
         />
+      </div>
 
-        {/* Floating Readout HUD on Current Cursor Position */}
-        <div className="absolute top-3 left-16 bg-slate-950/85 backdrop-blur-md border border-slate-700/80 px-3 py-2 rounded-lg text-xs shadow-2xl flex items-center gap-4 pointer-events-none">
-          <div className="flex flex-col">
-            <span className="text-[10px] text-slate-400 uppercase font-mono">Cursor Phase</span>
-            <span className="text-white font-mono font-bold">{activeSample.angleDeg}° ({((activeSample.time * 1000) % (1000 / params.frequency)).toFixed(1)} ms)</span>
+      {/* Dedicated Instantaneous Measurements Bar (Outside Canvas Area) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-slate-950 border-t border-slate-800 text-xs">
+        <div className="flex items-center gap-1.5 text-slate-400">
+          <span className="text-[10px] uppercase font-bold text-slate-500">Probe Instant:</span>
+          <span className="font-mono text-sky-400 font-bold">{activeSample.angleDeg}°</span>
+          <span className="text-slate-600 font-mono text-[11px]">({((activeSample.time * 1000) % (1000 / params.frequency)).toFixed(2)} ms)</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+          <div className="flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-800">
+            <span className="text-cyan-400 font-semibold">Vo:</span>
+            <span className="text-cyan-200 font-bold">{activeSample.vOut.toFixed(1)} V</span>
           </div>
-          <div className="h-6 w-px bg-slate-800" />
-          <div className="flex flex-col">
-            <span className="text-[10px] text-cyan-400 uppercase font-mono">Vo Instant</span>
-            <span className="text-cyan-300 font-mono font-bold">{activeSample.vOut.toFixed(1)} V</span>
+
+          <div className="flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-800">
+            <span className="text-pink-400 font-semibold">io:</span>
+            <span className="text-pink-200 font-bold">{activeSample.iOut.toFixed(2)} A</span>
           </div>
-          <div className="h-6 w-px bg-slate-800" />
-          <div className="flex flex-col">
-            <span className="text-[10px] text-pink-400 uppercase font-mono">Io Instant</span>
-            <span className="text-pink-300 font-mono font-bold">{activeSample.iOut.toFixed(2)} A</span>
+
+          <div className="flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-800">
+            <span className="text-amber-400 font-semibold">Vin:</span>
+            <span className="text-amber-200 font-bold">{activeSample.vInA.toFixed(1)} V</span>
           </div>
+
+          {showVdevice && (
+            <div className="flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-800">
+              <span className="text-emerald-400 font-semibold">V_dev:</span>
+              <span className="text-emerald-200 font-bold">{activeSample.vDevice1.toFixed(1)} V</span>
+            </div>
+          )}
+
           {params.device === 'thyristor' && (
-            <>
-              <div className="h-6 w-px bg-slate-800" />
-              <div className="flex flex-col">
-                <span className="text-[10px] text-amber-400 uppercase font-mono">Firing α</span>
-                <span className="text-amber-300 font-mono font-bold">{params.firingAngle}°</span>
-              </div>
-            </>
+            <div className="flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-800">
+              <span className="text-orange-400 font-semibold">Gate:</span>
+              <span className={activeSample.gatePulse === 1 ? 'text-orange-300 font-bold' : 'text-slate-500'}>
+                {activeSample.gatePulse === 1 ? 'PULSE (1)' : 'OFF (0)'}
+              </span>
+            </div>
           )}
         </div>
       </div>
