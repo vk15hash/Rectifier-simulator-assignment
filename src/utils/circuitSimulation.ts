@@ -45,9 +45,12 @@ export function simulateRectifier(
   const totalSamples = cyclesToSimulate * samplesPerCycle;
   const dt = totalTime / totalSamples;
 
-  // Pre-simulate 1 cycle to settle inductor/capacitor transient into steady state
+  // Effective back-EMF is only present for RLE load type
+  const effectiveBackEmf = loadType === 'RLE' ? Math.max(0, backEmf) : 0;
+
+  // Pre-simulate 1.5 cycles to settle inductor/capacitor transient into steady state
   let current_i = 0;
-  let capacitor_v = backEmf > 0 ? backEmf : 0;
+  let capacitor_v = 0;
   let conductingDeviceSet: string[] = [];
 
   // Helper for 3-phase phase voltages
@@ -87,13 +90,19 @@ export function simulateRectifier(
     // Gate pulse width = 10 degrees
     const pulseWidth = (10 * Math.PI) / 180;
 
+    // Load voltage when all switches are OFF / reverse-biased / awaiting firing:
+    // For R, RL, RL-FWD: no open-circuit voltage source -> vOff = 0
+    // For RC: capacitor holds voltage -> vOff = vCap
+    // For RLE: DC battery / EMF voltage -> vOff = effectiveBackEmf
+    const vOff = loadType === 'RC' ? vCap : effectiveBackEmf;
+
     if (phase === '1-phase') {
       const vs = VmPhase * Math.sin(theta);
 
       if (wave === 'half-wave') {
         if (device === 'diode') {
           // 1-Phase Half-Wave Diode
-          const isForwardBiased = vs > Math.max(vCap, backEmf) + diodeDrop;
+          const isForwardBiased = vs > vOff + diodeDrop;
           const isInductorConducting = (loadType === 'RL' || loadType === 'RL-FWD' || loadType === 'RLE') && iLoad > 0.001;
 
           if (isForwardBiased || (!hasFwd && isInductorConducting && vs < 0)) {
@@ -109,11 +118,11 @@ export function simulateRectifier(
             iDev1 = 0;
             pathDesc = 'Inductor freewheels through FWD';
           } else {
-            vTarget = loadType === 'RC' ? vCap : backEmf;
+            vTarget = vOff;
             activeDevices = [];
             vDev1 = vs - vTarget; // Blocking voltage
             iDev1 = 0;
-            pathDesc = 'D1 Blocking (Reverse biased)';
+            pathDesc = 'D1 Blocking (Reverse biased, Vo = 0)';
           }
         } else {
           // 1-Phase Half-Wave Thyristor
@@ -132,17 +141,17 @@ export function simulateRectifier(
               iDev1 = 0;
               pathDesc = 'Inductor freewheels through FWD (Vo = 0, T1 awaiting gate at α)';
             } else {
-              vTarget = loadType === 'RC' ? vCap : backEmf;
+              vTarget = vOff;
               activeDevices = [];
               vDev1 = vs - vTarget;
               iDev1 = 0;
-              pathDesc = 'T1 Forward Blocking (Awaiting Gate at α)';
+              pathDesc = 'T1 Forward Blocking (Awaiting Gate at α, Vo = 0)';
             }
           } else if (cycleAngle >= alphaRad && cycleAngle < Math.PI) {
             // Interval 2: alpha <= theta < pi
             // T1 has been fired and vs >= 0. T1 is actively conducting!
             // (FWD is reverse-biased by vs > 0 and turns OFF).
-            const canTrigger = vs > Math.max(vCap, backEmf) + diodeDrop;
+            const canTrigger = vs > vOff + diodeDrop;
             if (canTrigger || iLoad > 0.001) {
               vTarget = vs - diodeDrop;
               activeDevices = ['T1'];
@@ -150,7 +159,7 @@ export function simulateRectifier(
               iDev1 = iLoad;
               pathDesc = 'AC(+) → T1 (Triggered) → Load → AC(-)';
             } else {
-              vTarget = loadType === 'RC' ? vCap : backEmf;
+              vTarget = vOff;
               activeDevices = [];
               vDev1 = vs - vTarget;
               iDev1 = 0;
@@ -168,11 +177,11 @@ export function simulateRectifier(
                 iDev1 = 0;
                 pathDesc = 'Inductor freewheels through FWD (Vo = 0)';
               } else {
-                vTarget = loadType === 'RC' ? vCap : backEmf;
+                vTarget = vOff;
                 activeDevices = [];
                 vDev1 = vs - vTarget;
                 iDev1 = 0;
-                pathDesc = 'T1 & FWD Off (Current Extinguished)';
+                pathDesc = 'T1 & FWD Off (Current Extinguished, Vo = 0)';
               }
             } else {
               // Without FWD (Pure RL or RLE load):
@@ -186,11 +195,11 @@ export function simulateRectifier(
                 pathDesc = 'T1 Conducting into Negative Half (L maintains current)';
               } else {
                 // Current has dropped to zero: T1 extinguishes and turns OFF!
-                vTarget = loadType === 'RC' ? vCap : backEmf;
+                vTarget = vOff;
                 activeDevices = [];
                 vDev1 = vs - vTarget;
                 iDev1 = 0;
-                pathDesc = 'T1 Extinguished (Reverse Biased, i = 0)';
+                pathDesc = 'T1 Extinguished (Reverse Biased, i = 0, Vo = 0)';
               }
             }
           }
@@ -202,7 +211,7 @@ export function simulateRectifier(
 
         if (device === 'diode') {
           // 4 Diode Bridge: D1,D2 for pos; D3,D4 for neg
-          const isForwardBiased = absVs > Math.max(vCap, backEmf) + 2 * diodeDrop;
+          const isForwardBiased = absVs > vOff + 2 * diodeDrop;
           const isInductorConducting = (loadType === 'RL' || loadType === 'RL-FWD' || loadType === 'RLE') && iLoad > 0.001;
 
           if (isForwardBiased || isInductorConducting) {
@@ -219,11 +228,11 @@ export function simulateRectifier(
               pathDesc = 'AC(-) → D3 → Load → D4 → AC(+)';
             }
           } else {
-            vTarget = loadType === 'RC' ? vCap : backEmf;
+            vTarget = vOff;
             activeDevices = [];
             vDev1 = vs / 2;
             iDev1 = 0;
-            pathDesc = 'Bridge Diodes Blocking';
+            pathDesc = 'Bridge Diodes Blocking (Vo = 0)';
           }
         } else if (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical') {
           // 1-Phase Semi-converter (Half-controlled bridge: 2 SCRs + 2 Diodes)
@@ -266,13 +275,13 @@ export function simulateRectifier(
             vDev1 = vs;
             iDev1 = activeDevices.includes('T1') ? iLoad : 0;
           } else {
-            vTarget = loadType === 'RC' ? vCap : backEmf;
+            vTarget = vOff;
             activeDevices = [];
             vDev1 = vs;
             iDev1 = 0;
             pathDesc = isAsym
-              ? 'Asymmetrical Semi-converter Blocking'
-              : 'Symmetrical Semi-converter Blocking';
+              ? 'Asymmetrical Semi-converter Blocking (Vo = 0)'
+              : 'Symmetrical Semi-converter Blocking (Vo = 0)';
           }
         } else {
           // Fully Controlled Converter (T1, T2, T3, T4)
@@ -301,11 +310,11 @@ export function simulateRectifier(
               iDev1 = iLoad;
               pathDesc = 'AC(+) → T1 → Load → T2 → AC(-)';
             } else {
-              vTarget = loadType === 'RC' ? vCap : backEmf;
+              vTarget = vOff;
               activeDevices = [];
               vDev1 = vs;
               iDev1 = 0;
-              pathDesc = 'T1, T2 Extinguished';
+              pathDesc = 'T1, T2 Extinguished (Vo = 0, awaiting T3, T4 trigger at π+α)';
             }
           } else {
             // Pair T3, T4 conducting
@@ -323,11 +332,11 @@ export function simulateRectifier(
               iDev1 = 0;
               pathDesc = 'AC(-) → T3 → Load → T4 → AC(+)';
             } else {
-              vTarget = loadType === 'RC' ? vCap : backEmf;
+              vTarget = vOff;
               activeDevices = [];
               vDev1 = vs;
               iDev1 = 0;
-              pathDesc = 'T3, T4 Extinguished';
+              pathDesc = 'T3, T4 Extinguished (Vo = 0, awaiting T1, T2 trigger at α)';
             }
           }
         }
@@ -403,6 +412,10 @@ export function simulateRectifier(
             vTarget = -diodeDrop;
             activeDevices = ['FWD'];
             pathDesc = 'Inductor freewheels via FWD';
+          } else if (loadType === 'R' && vTarget < 0) {
+            vTarget = 0;
+            activeDevices = [];
+            pathDesc = 'Thyristor Extinguished (Vo = 0)';
           }
         }
       } else {
@@ -529,6 +542,10 @@ export function simulateRectifier(
             vTarget = -diodeDrop;
             activeDevices = ['FWD'];
             pathDesc = 'Inductor freewheeling via FWD';
+          } else if (loadType === 'R' && vTarget < 0) {
+            vTarget = 0;
+            activeDevices = [];
+            pathDesc = 'Thyristors Extinguished (Vo = 0)';
           } else {
             pathDesc = `${chosen.name}: ${activeDevices[0]} → Load → ${activeDevices[1]}`;
           }
@@ -549,7 +566,7 @@ export function simulateRectifier(
     const { vTarget } = evaluateRectifierCircuit(t, current_i, capacitor_v);
 
     if (loadType === 'R') {
-      current_i = Math.max(0, (vTarget - backEmf) / Math.max(0.1, resistance));
+      current_i = Math.max(0, (vTarget - effectiveBackEmf) / Math.max(0.1, resistance));
     } else if (loadType === 'RC') {
       // Capacitor with parallel resistor
       const rVal = Math.max(0.1, resistance);
@@ -564,7 +581,7 @@ export function simulateRectifier(
       // RL or RL-FWD or RLE
       const rVal = Math.max(0.1, resistance);
       const lVal = Math.max(1e-4, inductance);
-      const di_dt = (vTarget - rVal * current_i - backEmf) / lVal;
+      const di_dt = (vTarget - rVal * current_i - effectiveBackEmf) / lVal;
       current_i = Math.max(0, current_i + di_dt * dt);
     }
   }
@@ -589,7 +606,7 @@ export function simulateRectifier(
 
     if (loadType === 'R') {
       vOutInstant = Math.max(0, vTarget);
-      iOutInstant = Math.max(0, (vOutInstant - backEmf) / Math.max(0.1, resistance));
+      iOutInstant = Math.max(0, (vOutInstant - effectiveBackEmf) / Math.max(0.1, resistance));
       current_i = iOutInstant;
     } else if (loadType === 'RC') {
       const rVal = Math.max(0.1, resistance);
@@ -606,14 +623,14 @@ export function simulateRectifier(
       // RL, RL-FWD, RLE
       const rVal = Math.max(0.1, resistance);
       const lVal = Math.max(1e-4, inductance);
-      const di_dt = (vTarget - rVal * current_i - backEmf) / lVal;
+      const di_dt = (vTarget - rVal * current_i - effectiveBackEmf) / lVal;
       current_i = Math.max(0, current_i + di_dt * dt);
       
-      // If current is continuous, vOut = vTarget. If current is 0 (discontinuous), vOut = backEmf
+      // If current is continuous, vOut = vTarget. If current is 0 (discontinuous), vOut = effectiveBackEmf
       if (current_i > 0.001 || activeDevices.length > 0) {
         vOutInstant = vTarget;
       } else {
-        vOutInstant = backEmf;
+        vOutInstant = effectiveBackEmf;
       }
       iOutInstant = current_i;
     }

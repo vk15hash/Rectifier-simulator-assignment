@@ -92,7 +92,7 @@ export const LabGuideModal: React.FC<LabGuideModalProps> = ({ isOpen, onClose })
                     <td className="p-2.5 font-sans font-medium text-white">1Φ Full Controlled Bridge (SCR)</td>
                     <td className="p-2.5">2</td>
                     <td className="p-2.5">2f</td>
-                    <td className="p-2.5 text-amber-300">(2 Vm / π) · cos(α)</td>
+                    <td className="p-2.5 text-amber-300">(Vm / π) · (1 + cos α) [R] / (2Vm / π) · cos α [RL]</td>
                     <td className="p-2.5">Varies with α</td>
                     <td className="p-2.5">&le; 81.2%</td>
                   </tr>
