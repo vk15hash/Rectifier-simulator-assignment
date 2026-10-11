@@ -438,13 +438,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         <button
           onClick={() => onChange({ diodeDrop: params.diodeDrop > 0 ? 0 : 0.7 })}
-          className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
-            params.diodeDrop > 0
-              ? 'bg-amber-950/40 text-amber-300 border-amber-600/40'
-              : 'bg-slate-800 text-slate-400 border-slate-700'
+          className={`px-2.5 py-1 rounded text-[11px] border font-medium transition-all ${
+            params.diodeDrop === 0
+              ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/60 shadow-sm'
+              : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
           }`}
+          title="Click to toggle between ideal switch (0V drop) and practical silicon drop (0.7V)"
         >
-          {params.diodeDrop > 0 ? 'V_drop: 0.7V' : 'Ideal (0V drop)'}
+          {params.diodeDrop === 0 ? '✓ Ideal (0V Drop)' : 'Practical (0.7V Drop)'}
         </button>
       </div>
     </div>

@@ -41,7 +41,7 @@ export default function App() {
     capacitance: 0.00047, // 470 uF
     backEmf: 24,
     hasFwd: false,
-    diodeDrop: 0.7
+    diodeDrop: 0
   });
 
   // Oscilloscope timeline & playback

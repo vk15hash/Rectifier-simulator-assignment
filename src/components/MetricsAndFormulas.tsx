@@ -141,14 +141,36 @@ export const MetricsAndFormulas: React.FC<MetricsAndFormulasProps> = ({
           </span>
         </div>
 
-        {/* Clean Equation Display */}
-        <div className="py-2.5 px-4 bg-slate-900 border border-slate-700/60 rounded-md font-mono text-sm text-sky-300 flex items-center justify-between overflow-x-auto">
-          <code>
-            {metrics.theoreticalFormula.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1 / $2)').replace(/\\pi/g, 'π').replace(/\\cos/g, 'cos').replace(/\\sqrt\{([^}]+)\}/g, '√$1').replace(/\\approx/g, '≈').replace(/\\cdot/g, '·').replace(/\\text\{([^}]+)\}/g, ' $1')}
-          </code>
-          <span className="text-xs text-slate-400 ml-4 whitespace-nowrap">
-            Predicted Vdc = <strong className="text-emerald-400">{metrics.vDcTheoretical} V</strong>
-          </span>
+        {/* Textbook Equation Display */}
+        <div className="py-3.5 px-4 bg-slate-900 border border-slate-700/60 rounded-xl font-mono text-sm text-sky-300 flex flex-wrap items-center justify-between gap-4 overflow-x-auto shadow-inner">
+          <div className="flex items-center gap-3">
+            <span className="font-bold text-white text-base">V_dc =</span>
+            {metrics.formulaNumerator && metrics.formulaDenominator ? (
+              <div className="inline-flex items-center gap-2">
+                <div className="inline-flex flex-col items-center">
+                  <span className="border-b-2 border-sky-400 px-2 pb-0.5 text-center font-bold text-sky-200 text-sm leading-tight">
+                    {metrics.formulaNumerator}
+                  </span>
+                  <span className="pt-0.5 text-center text-slate-300 font-semibold text-xs leading-tight">
+                    {metrics.formulaDenominator}
+                  </span>
+                </div>
+                {metrics.formulaSuffix && (
+                  <span className="text-amber-300 font-semibold text-sm">
+                    {metrics.formulaSuffix}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="font-semibold text-sky-200 text-sm">
+                {metrics.theoreticalFormula}
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-slate-300 bg-slate-950 px-3.5 py-1.5 rounded-lg border border-slate-800 font-mono flex items-center gap-2">
+            <span className="text-slate-400">Predicted V_dc:</span>
+            <strong className="text-emerald-400 text-sm font-bold">{metrics.vDcTheoretical} V</strong>
+          </div>
         </div>
 
         <p className="text-xs text-slate-400 leading-relaxed">

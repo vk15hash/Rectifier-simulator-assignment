@@ -26,7 +26,7 @@ export function simulateRectifier(
     capacitance,
     backEmf,
     hasFwd,
-    diodeDrop
+    diodeDrop = 0
   } = params;
 
   const f = Math.max(1, frequency);
@@ -117,32 +117,82 @@ export function simulateRectifier(
           }
         } else {
           // 1-Phase Half-Wave Thyristor
-          const firingWindow = cycleAngle >= alphaRad && cycleAngle < Math.PI;
           if (cycleAngle >= alphaRad && cycleAngle <= alphaRad + pulseWidth) {
             gateActive = 1;
           }
 
-          const canConduct = (cycleAngle >= alphaRad && vs > Math.max(vCap, backEmf) + diodeDrop) ||
-            ((loadType === 'RL' || loadType === 'RL-FWD' || loadType === 'RLE') && iLoad > 0.001);
-
-          if (canConduct && (!hasFwd || vs >= 0)) {
-            vTarget = vs - diodeDrop;
-            activeDevices = ['T1'];
-            vDev1 = diodeDrop;
-            iDev1 = iLoad;
-            pathDesc = 'AC(+) → T1 (Triggered) → Load → AC(-)';
-          } else if (hasFwd && iLoad > 0.001) {
-            vTarget = -diodeDrop;
-            activeDevices = ['FWD'];
-            vDev1 = vs;
-            iDev1 = 0;
-            pathDesc = 'Inductor freewheels through FWD';
+          if (cycleAngle < alphaRad) {
+            // Interval 1: 0 <= theta < alpha
+            // T1 has NOT received a gate pulse! T1 is OFF (forward blocking, awaiting gate).
+            if (hasFwd && iLoad > 0.001) {
+              // Residual inductor current freewheels through FWD, clamping Vo to 0
+              vTarget = -diodeDrop;
+              activeDevices = ['FWD'];
+              vDev1 = vs; // T1 blocks positive supply voltage
+              iDev1 = 0;
+              pathDesc = 'Inductor freewheels through FWD (Vo = 0, T1 awaiting gate at α)';
+            } else {
+              vTarget = loadType === 'RC' ? vCap : backEmf;
+              activeDevices = [];
+              vDev1 = vs - vTarget;
+              iDev1 = 0;
+              pathDesc = 'T1 Forward Blocking (Awaiting Gate at α)';
+            }
+          } else if (cycleAngle >= alphaRad && cycleAngle < Math.PI) {
+            // Interval 2: alpha <= theta < pi
+            // T1 has been fired and vs >= 0. T1 is actively conducting!
+            // (FWD is reverse-biased by vs > 0 and turns OFF).
+            const canTrigger = vs > Math.max(vCap, backEmf) + diodeDrop;
+            if (canTrigger || iLoad > 0.001) {
+              vTarget = vs - diodeDrop;
+              activeDevices = ['T1'];
+              vDev1 = diodeDrop;
+              iDev1 = iLoad;
+              pathDesc = 'AC(+) → T1 (Triggered) → Load → AC(-)';
+            } else {
+              vTarget = loadType === 'RC' ? vCap : backEmf;
+              activeDevices = [];
+              vDev1 = vs - vTarget;
+              iDev1 = 0;
+              pathDesc = 'T1 Blocking (vs <= E)';
+            }
           } else {
-            vTarget = loadType === 'RC' ? vCap : backEmf;
-            activeDevices = [];
-            vDev1 = vs - vTarget;
-            iDev1 = 0;
-            pathDesc = cycleAngle < alphaRad ? 'T1 Forward Blocking (Awaiting Gate)' : 'T1 Reverse Blocking';
+            // Interval 3: pi <= theta < 2*pi
+            // Negative half cycle (vs < 0).
+            if (hasFwd) {
+              // With FWD: FWD forward-biases at pi, clamping Vo = 0. T1 turns OFF!
+              if (iLoad > 0.001) {
+                vTarget = -diodeDrop;
+                activeDevices = ['FWD'];
+                vDev1 = vs; // T1 reverse-biased by vs
+                iDev1 = 0;
+                pathDesc = 'Inductor freewheels through FWD (Vo = 0)';
+              } else {
+                vTarget = loadType === 'RC' ? vCap : backEmf;
+                activeDevices = [];
+                vDev1 = vs - vTarget;
+                iDev1 = 0;
+                pathDesc = 'T1 & FWD Off (Current Extinguished)';
+              }
+            } else {
+              // Without FWD (Pure RL or RLE load):
+              // Inductor forces T1 to continue conducting into negative half cycle
+              // until current drops to zero at extinction angle beta!
+              if ((loadType === 'RL' || loadType === 'RLE') && iLoad > 0.001) {
+                vTarget = vs - diodeDrop;
+                activeDevices = ['T1'];
+                vDev1 = diodeDrop;
+                iDev1 = iLoad;
+                pathDesc = 'T1 Conducting into Negative Half (L maintains current)';
+              } else {
+                // Current has dropped to zero: T1 extinguishes and turns OFF!
+                vTarget = loadType === 'RC' ? vCap : backEmf;
+                activeDevices = [];
+                vDev1 = vs - vTarget;
+                iDev1 = 0;
+                pathDesc = 'T1 Extinguished (Reverse Biased, i = 0)';
+              }
+            }
           }
         }
       } else {
@@ -606,9 +656,47 @@ export function simulateRectifier(
   const pAc = vRmsMeasured * iRmsMeasured;
   const efficiency = pAc > 0.001 ? Math.min(100, Math.max(0, (pDc / pAc) * 100)) : 0;
 
+  // Extinction & Conduction Angle calculation for RL load
+  let extinctionAngleDeg: number | null = null;
+  let conductionAngleDeg: number | null = null;
+  if ((loadType === 'RL' || loadType === 'RL-FWD' || loadType === 'RLE')) {
+    const triggerAngle = device === 'diode' ? 0 : firingAngle;
+    const startIdx = Math.floor((triggerAngle / 360) * samplesPerCycle);
+    
+    // 1. Find peak current in cycle
+    let maxI = 0;
+    let maxIdx = startIdx;
+    for (let j = 0; j < samplesPerCycle; j++) {
+      const idx = (startIdx + j) % samples.length;
+      if (samples[idx].iOut > maxI) {
+        maxI = samples[idx].iOut;
+        maxIdx = idx;
+      }
+    }
+
+    // 2. If significant conduction occurred, find where current drops below threshold after peak
+    if (maxI > 0.02) {
+      let zeroIdx = -1;
+      for (let j = 1; j < samplesPerCycle; j++) {
+        const idx = (maxIdx + j) % samples.length;
+        if (samples[idx].iOut < 0.005) {
+          zeroIdx = idx;
+          break;
+        }
+      }
+      if (zeroIdx !== -1) {
+        extinctionAngleDeg = samples[zeroIdx].angleDeg;
+        conductionAngleDeg = (extinctionAngleDeg - triggerAngle + 360) % 360;
+      }
+    }
+  }
+
   // Theoretical formula string & theoretical Vdc value
   let vDcTheoretical = 0;
   let theoreticalFormula = '';
+  let formulaNumerator = '';
+  let formulaDenominator = '';
+  let formulaSuffix = '';
   let formulaNote = '';
   let rippleFrequency = f;
 
@@ -619,36 +707,75 @@ export function simulateRectifier(
       rippleFrequency = f;
       if (device === 'diode') {
         vDcTheoretical = (VmPhase / Math.PI) - diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{V_m}{\\pi} \\approx 0.318 \\cdot V_m';
-        formulaNote = 'Half-wave diode rectifier delivers positive half cycles only.';
+        theoreticalFormula = 'V_dc = V_m / π ≈ 0.318 · V_m';
+        formulaNumerator = 'V_m';
+        formulaDenominator = 'π';
+        formulaSuffix = '≈ 0.318 · V_m';
+        formulaNote = '1Φ half-wave diode rectifier delivers positive half cycles (0 to π).';
       } else {
-        vDcTheoretical = ((VmPhase / (2 * Math.PI)) * (1 + cosA)) - diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{V_m}{2\\pi}(1 + \\cos\\alpha)';
-        formulaNote = 'Phase-controlled thyristor triggered at firing angle α.';
+        if (hasFwd || loadType === 'R') {
+          vDcTheoretical = ((VmPhase / (2 * Math.PI)) * (1 + cosA)) - diodeDrop;
+          theoreticalFormula = 'V_dc = (V_m / 2π) · (1 + cos α)';
+          formulaNumerator = 'V_m';
+          formulaDenominator = '2π';
+          formulaSuffix = '· (1 + cos α)';
+          formulaNote = hasFwd
+            ? '1Φ half-wave SCR with RL+FWD: Vo = 0 during freewheeling, Vo = Vs from α to π.'
+            : '1Φ half-wave SCR with resistive load: conducts from firing angle α to π.';
+        } else if (extinctionAngleDeg !== null && extinctionAngleDeg > firingAngle) {
+          const betaRad = (extinctionAngleDeg * Math.PI) / 180;
+          vDcTheoretical = Math.max(0, ((VmPhase / (2 * Math.PI)) * (Math.cos(alphaRad) - Math.cos(betaRad))) - diodeDrop);
+          theoreticalFormula = 'V_dc = (V_m / 2π) · (cos α - cos β)';
+          formulaNumerator = 'V_m';
+          formulaDenominator = '2π';
+          formulaSuffix = `· (cos ${firingAngle}° - cos ${extinctionAngleDeg}°)`;
+          formulaNote = `1Φ half-wave SCR with RL load: conducts from α=${firingAngle}° to extinction angle β=${extinctionAngleDeg}°.`;
+        } else {
+          vDcTheoretical = ((VmPhase / (2 * Math.PI)) * (1 + cosA)) - diodeDrop;
+          theoreticalFormula = 'V_dc = (V_m / 2π) · (1 + cos α)';
+          formulaNumerator = 'V_m';
+          formulaDenominator = '2π';
+          formulaSuffix = '· (1 + cos α)';
+          formulaNote = '1Φ half-wave phase-controlled thyristor triggered at firing angle α.';
+        }
       }
     } else {
       // Full-wave
       rippleFrequency = 2 * f;
       if (device === 'diode') {
         vDcTheoretical = ((2 * VmPhase) / Math.PI) - 2 * diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{2V_m}{\\pi} \\approx 0.636 \\cdot V_m';
-        formulaNote = 'Single-phase full-wave bridge rectifier (2-pulse).';
+        theoreticalFormula = 'V_dc = 2V_m / π ≈ 0.636 · V_m';
+        formulaNumerator = '2V_m';
+        formulaDenominator = 'π';
+        formulaSuffix = '≈ 0.636 · V_m';
+        formulaNote = '1Φ full-wave bridge diode rectifier (2-pulse output).';
       } else if (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical') {
         vDcTheoretical = ((VmPhase / Math.PI) * (1 + cosA)) - 2 * diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{V_m}{\\pi}(1 + \\cos\\alpha)';
+        theoreticalFormula = 'V_dc = (V_m / π) · (1 + cos α)';
+        formulaNumerator = 'V_m';
+        formulaDenominator = 'π';
+        formulaSuffix = '· (1 + cos α)';
         formulaNote = variant === 'semi-asymmetrical'
-          ? 'Asymmetrical semi-converter (Leg 1: SCRs, Leg 2: Diodes) with inherent freewheeling.'
-          : 'Symmetrical semi-converter (Top: 2 SCRs, Bottom: 2 Diodes) with inherent freewheeling.';
+          ? '1Φ asymmetrical semi-converter with inherent freewheeling preventing negative output.'
+          : '1Φ symmetrical semi-converter with inherent freewheeling preventing negative output.';
       } else {
         // Fully controlled bridge
-        if (hasFwd) {
+        if (hasFwd || loadType === 'R') {
           vDcTheoretical = ((VmPhase / Math.PI) * (1 + cosA)) - 2 * diodeDrop;
-          theoreticalFormula = 'V_dc = \\frac{V_m}{\\pi}(1 + \\cos\\alpha) \\text{ (with FWD)}';
-          formulaNote = 'Full converter with freewheeling diode clamped at zero voltage.';
+          theoreticalFormula = 'V_dc = (V_m / π) · (1 + cos α)';
+          formulaNumerator = 'V_m';
+          formulaDenominator = 'π';
+          formulaSuffix = '· (1 + cos α)';
+          formulaNote = hasFwd
+            ? '1Φ full converter with freewheeling diode (FWD clamps Vo ≥ 0).'
+            : '1Φ full converter with R load (discontinuous at zero crossings, Vo ≥ 0).';
         } else {
           vDcTheoretical = (((2 * VmPhase) / Math.PI) * cosA) - 2 * diodeDrop;
-          theoreticalFormula = 'V_dc = \\frac{2V_m}{\\pi}\\cos\\alpha';
-          formulaNote = 'Full-wave fully controlled bridge (allows negative excursions for large L).';
+          theoreticalFormula = 'V_dc = (2V_m / π) · cos α';
+          formulaNumerator = '2V_m';
+          formulaDenominator = 'π';
+          formulaSuffix = '· cos α';
+          formulaNote = '1Φ fully controlled bridge (allows negative excursions for large L).';
         }
       }
     }
@@ -658,11 +785,17 @@ export function simulateRectifier(
       rippleFrequency = 3 * f;
       if (device === 'diode') {
         vDcTheoretical = ((3 * Math.sqrt(3) * VmPhase) / (2 * Math.PI)) - diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{3\\sqrt{3}V_{m,ph}}{2\\pi} \\approx 0.827 \\cdot V_{m,ph} = 1.17 \\cdot V_{ph,rms}';
+        theoreticalFormula = 'V_dc = (3√3·V_m,ph / 2π) ≈ 0.827 · V_m,ph = 1.17 · V_ph,rms';
+        formulaNumerator = '3√3 · V_m,ph';
+        formulaDenominator = '2π';
+        formulaSuffix = '≈ 0.827 · V_m,ph = 1.17 · V_ph,rms';
         formulaNote = '3-phase half-wave diode rectifier (3-pulse output).';
       } else {
         vDcTheoretical = (((3 * Math.sqrt(3) * VmPhase) / (2 * Math.PI)) * cosA) - diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{3\\sqrt{3}V_{m,ph}}{2\\pi}\\cos\\alpha';
+        theoreticalFormula = 'V_dc = (3√3·V_m,ph / 2π) · cos α';
+        formulaNumerator = '3√3 · V_m,ph';
+        formulaDenominator = '2π';
+        formulaSuffix = '· cos α';
         formulaNote = '3-phase half-wave controlled converter triggered at angle α.';
       }
     } else {
@@ -670,15 +803,24 @@ export function simulateRectifier(
       rippleFrequency = 6 * f;
       if (device === 'diode') {
         vDcTheoretical = ((3 * VmLine) / Math.PI) - 2 * diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{3 V_{m,LL}}{\\pi} = \\frac{3\\sqrt{2}}{\\pi} V_{LL,rms} \\approx 1.35 \\cdot V_{LL,rms}';
+        theoreticalFormula = 'V_dc = 3·V_m,LL / π = (3√2 / π)·V_LL,rms ≈ 1.35 · V_LL,rms';
+        formulaNumerator = '3 · V_m,LL';
+        formulaDenominator = 'π';
+        formulaSuffix = '≈ 1.35 · V_LL,rms';
         formulaNote = '3-phase 6-pulse diode bridge rectifier with minimal ripple.';
       } else if (variant === 'semi-converter' || variant === 'semi-symmetrical' || variant === 'semi-asymmetrical') {
         vDcTheoretical = (((3 * VmLine) / (2 * Math.PI)) * (1 + cosA)) - 2 * diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{3 V_{m,LL}}{2\\pi}(1 + \\cos\\alpha)';
+        theoreticalFormula = 'V_dc = (3·V_m,LL / 2π) · (1 + cos α)';
+        formulaNumerator = '3 · V_m,LL';
+        formulaDenominator = '2π';
+        formulaSuffix = '· (1 + cos α)';
         formulaNote = '3-phase half-controlled bridge (semi-converter: 3 SCRs + 3 Diodes) with inherent freewheeling.';
       } else {
         vDcTheoretical = (((3 * VmLine) / Math.PI) * cosA) - 2 * diodeDrop;
-        theoreticalFormula = 'V_dc = \\frac{3 V_{m,LL}}{\\pi}\\cos\\alpha = 1.35 \\cdot V_{LL,rms} \\cos\\alpha';
+        theoreticalFormula = 'V_dc = (3·V_m,LL / π) · cos α ≈ 1.35 · V_LL,rms · cos α';
+        formulaNumerator = '3 · V_m,LL';
+        formulaDenominator = 'π';
+        formulaSuffix = '· cos α ≈ 1.35 · V_LL,rms · cos α';
         formulaNote = '3-phase fully-controlled 6-pulse thyristor converter.';
       }
     }
@@ -721,26 +863,6 @@ export function simulateRectifier(
 
   const thdPercent = fundRms > 0.1 ? Math.round((Math.sqrt(harmonicRmsSq) / fundRms) * 1000) / 10 : 0;
 
-  // Extinction & Conduction Angle calculation for RL load
-  let extinctionAngleDeg: number | null = null;
-  let conductionAngleDeg: number | null = null;
-  if (loadType === 'RL' || loadType === 'RL-FWD') {
-    // Find where iOut drops back to zero after firing
-    const startIdx = Math.floor((firingAngle / 360) * samplesPerCycle);
-    let zeroIdx = -1;
-    for (let j = startIdx + 1; j < samplesPerCycle + startIdx; j++) {
-      const idx = j % samples.length;
-      if (samples[idx].iOut < 0.005) {
-        zeroIdx = idx;
-        break;
-      }
-    }
-    if (zeroIdx !== -1) {
-      extinctionAngleDeg = samples[zeroIdx].angleDeg;
-      conductionAngleDeg = (extinctionAngleDeg - firingAngle + 360) % 360;
-    }
-  }
-
   const metrics: CircuitMetrics = {
     vDcTheoretical: Math.round(vDcTheoretical * 100) / 100,
     vDcMeasured: Math.round(vDcMeasured * 100) / 100,
@@ -755,7 +877,10 @@ export function simulateRectifier(
     conductionAngleDeg,
     rippleFrequency,
     theoreticalFormula,
-    formulaNote
+    formulaNote,
+    formulaNumerator,
+    formulaDenominator,
+    formulaSuffix
   };
 
   return { samples, metrics, harmonics };

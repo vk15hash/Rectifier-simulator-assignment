@@ -78,4 +78,7 @@ export interface CircuitMetrics {
   rippleFrequency: number;
   theoreticalFormula: string;
   formulaNote: string;
+  formulaNumerator?: string;
+  formulaDenominator?: string;
+  formulaSuffix?: string;
 }
